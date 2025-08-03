@@ -1,0 +1,16 @@
+# Environment files
+backend/.env
+
+# Node dependencies
+backend/node_modules/
+
+# Logs
+backend/*.log
+
+# Build artifacts (if any later)
+backend/dist/
+backend/build/
+
+# S-specific junk files
+.DS_Store
+Thumbs.db
