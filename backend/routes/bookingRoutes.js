@@ -60,11 +60,11 @@ router.post("/", async (req, res) => {
     const overlappingBookings = await Booking.aggregate([
       {
         $match: {
-          hotelSlug,
-          roomType,
-          status: "confirmed",
+          hotelSlug, //bookings in same hotel
+          roomType, //bookings in same room of same hotel
+          status: "confirmed", //only count bookings that are already confirmed
           $or: [
-            { checkIn: { $lt: checkOutDate }, checkOut: { $gt: checkInDate } }
+            { checkIn: { $lt: checkOutDate }, checkOut: { $gt: checkInDate } }  //booking starts before this user's checkout and booking ends after this user's check in
           ]
         }
       },
@@ -78,8 +78,8 @@ router.post("/", async (req, res) => {
 
     const currentlyBooked = overlappingBookings.length > 0 ? overlappingBookings[0].totalBooked : 0;
 
-    if (currentlyBooked + roomsBooked > room.totalRooms) {
-      return res.status(400).json({ message: "Not enough rooms available for these dates" });
+    if (currentlyBooked + roomsBooked > room.totalRooms) { //if 5 rooms are there and all 5 are booked with the same date and more users want the same room with the same dates, it will reject the booking
+      return res.status(400).json({ message: "Not enough rooms available for these dates" }); 
     }
 
     // Update room count
