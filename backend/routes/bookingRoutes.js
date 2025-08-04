@@ -23,20 +23,16 @@ router.post("/", async (req, res) => {
     const oneYearFromToday = new Date();
     oneYearFromToday.setFullYear(today.getFullYear() + 1);
     const tomorrow = new Date();
-    tomorrow.setDate(today.getDate() + 1); // move to next day
+    tomorrow.setDate(today.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
 
-    // Check-in must be today or later
+    // Date validation
     if (checkInDate < tomorrow) {
       return res.status(400).json({ message: "Check-in date can only be after current day." });
     }
-
-    // Check-out must be after check-in
     if (checkOutDate <= checkInDate) {
       return res.status(400).json({ message: "Check-out date must be after check-in date." });
     }
-
-    // Check-in cannot be more than 1 year from now
     if (checkInDate > oneYearFromToday) {
       return res.status(400).json({ message: "You can only book up to 1 year in advance." });
     }
@@ -60,9 +56,30 @@ router.post("/", async (req, res) => {
 
     console.log(`Room found: ${room.type} | Booked: ${room.bookedRooms}/${room.totalRooms}`);
 
-    // Check if enough rooms are available
-    if (room.bookedRooms + roomsBooked > room.totalRooms) {
-      return res.status(400).json({ message: "Not enough rooms available" });
+    // OVERLAP CHECK 
+    const overlappingBookings = await Booking.aggregate([
+      {
+        $match: {
+          hotelSlug,
+          roomType,
+          status: "confirmed",
+          $or: [
+            { checkIn: { $lt: checkOutDate }, checkOut: { $gt: checkInDate } }
+          ]
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalBooked: { $sum: "$roomsBooked" }
+        }
+      }
+    ]);
+
+    const currentlyBooked = overlappingBookings.length > 0 ? overlappingBookings[0].totalBooked : 0;
+
+    if (currentlyBooked + roomsBooked > room.totalRooms) {
+      return res.status(400).json({ message: "Not enough rooms available for these dates" });
     }
 
     // Update room count
@@ -99,7 +116,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-//CANCEL BOOKING ROUTE (with debug logs)
+// CANCEL BOOKING ROUTE (with debug logs)
 router.delete("/:bookingId", async (req, res) => {
   try {
     console.log("Cancel Booking Request:", req.params.bookingId);
@@ -113,17 +130,15 @@ router.delete("/:bookingId", async (req, res) => {
       return res.status(404).json({ message: "Booking not found" });
     }
 
-    //DEBUG: Print what's in DB
     console.log("Booking in DB:", {
       hotelSlug: booking.hotelSlug,
       roomType: booking.roomType,
       roomsBooked: booking.roomsBooked,
     });
 
-    //DEBUG: Print what the user sent
     console.log("Details sent by user:", { hotelSlug, roomType, roomsBooked });
 
-    // Safety check — make sure user-provided details match the DB record
+    // Safety check make sure details match
     if (
       booking.hotelSlug !== hotelSlug ||
       booking.roomType !== roomType ||
@@ -134,15 +149,15 @@ router.delete("/:bookingId", async (req, res) => {
       });
     }
 
-    // Find the room and decrease booked count
+    //Decrease booked count
     const room = await Room.findOne({ hotelSlug, type: roomType });
     if (room) {
       room.bookedRooms -= roomsBooked;
-      if (room.bookedRooms < 0) room.bookedRooms = 0; // safety check
+      if (room.bookedRooms < 0) room.bookedRooms = 0;
       await room.save();
     }
 
-    // Update booking status instead of deleting (for history)
+    //Update status instead of deleting booking
     booking.status = "cancelled";
     await booking.save();
 
@@ -152,6 +167,5 @@ router.delete("/:bookingId", async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 });
-
 
 export default router;
