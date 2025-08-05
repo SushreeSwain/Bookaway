@@ -1,31 +1,35 @@
 import express from "express";
-import Hotel from "../models/Hotel.js"; // correct import
+import Hotel from "../models/Hotel.js";
 
 const router = express.Router();
 
-//  Get all hotels
 router.get("/", async (req, res) => {
   try {
-    const hotels = await Hotel.find({});
-    res.json(hotels);
+    const { city, country, maxPrice, page = 1, limit = 10 } = req.query;
+
+    const filters = {};
+
+    if (city) filters.city = city;
+    if (country) filters.country = country;
+    if (maxPrice) filters["cheapestPrice"] = { $lte: Number(maxPrice) };
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const hotels = await Hotel.find(filters).skip(skip).limit(Number(limit));
+
+    const total = await Hotel.countDocuments(filters);
+
+    res.status(200).json({
+      hotels,
+      pagination: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / limit)
+      }
+    });
   } catch (error) {
     console.error("Error fetching hotels:", error);
-    res.status(500).json({ message: "Server Error" });
-  }
-});
-
-//  Get one hotel by slug
-router.get("/:slug", async (req, res) => {
-  try {
-    const hotel = await Hotel.findOne({ slug: req.params.slug });
-
-    if (!hotel) {
-      return res.status(404).json({ message: "Hotel not found" });
-    }
-
-    res.json(hotel);
-  } catch (error) {
-    console.error("Error fetching hotel:", error);
     res.status(500).json({ message: "Server Error" });
   }
 });
