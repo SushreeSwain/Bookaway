@@ -9,9 +9,9 @@ router.get("/", async (req, res) => {
 
     const filters = {};
 
-    if (city) filters.city = city;
-    if (country) filters.country = country;
-    if (maxPrice) filters["cheapestPrice"] = { $lte: Number(maxPrice) };
+    if (city) filters.city = new RegExp(`^${city}$`, "i"); // case-insensitive exact match
+    if (country) filters.country = new RegExp(`^${country}$`, "i");
+    if (maxPrice) filters.cheapestPrice = { $lte: Number(maxPrice) };
 
     const skip = (Number(page) - 1) * Number(limit);
 
@@ -25,8 +25,8 @@ router.get("/", async (req, res) => {
         total,
         page: Number(page),
         limit: Number(limit),
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages: Math.ceil(total / limit),
+      },
     });
   } catch (error) {
     console.error("Error fetching hotels:", error);

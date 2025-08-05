@@ -3,7 +3,8 @@ import mongoose from "mongoose";
 const HotelSchema = new mongoose.Schema({
   name: String,
   slug: String,
-  location: String,
+  city: String,
+  country: String,
   tagline: String,
   description: String,
   startingPrice: Number,
