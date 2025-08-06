@@ -5,13 +5,13 @@ const router = express.Router();
 
 router.get("/", async (req, res) => {
   try {
-    const { city, country, maxPrice, page = 1, limit = 10 } = req.query;
+    const { city, country, startingPrice, page = 1, limit = 10 } = req.query;
 
     const filters = {};
 
     if (city) filters.city = new RegExp(`^${city}$`, "i"); // case-insensitive exact match
     if (country) filters.country = new RegExp(`^${country}$`, "i");
-    if (maxPrice) filters.cheapestPrice = { $lte: Number(maxPrice) };
+    if (startingPrice) filters.startingPrice = { $lte: Number(startingPrice) };
 
     const skip = (Number(page) - 1) * Number(limit);
 
