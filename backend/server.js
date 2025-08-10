@@ -7,6 +7,7 @@ import "./cronJobs.js";
 //  Routes
 import hotelRoutes from "./routes/hotelRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
+import authRoutes from "./routes/auth.js";
 
 dotenv.config();
 const app = express();
@@ -15,9 +16,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+
 //  API Routes
 app.use("/api/hotels", hotelRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/auth", authRoutes);
+
 
 //  Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
