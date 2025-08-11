@@ -2,69 +2,72 @@ import express from "express";
 import Booking from "../models/Booking.js";
 import Hotel from "../models/Hotel.js";
 import Room from "../models/Room.js";
+import { verifyToken } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.post("/", async (req, res) => {
+/**
+ * @route   POST /api/bookings
+ * @desc    Create a new booking (Login required)
+ */
+router.post("/", verifyToken, async (req, res) => {
   try {
-    console.log("Incoming booking request:", req.body);
-
     const { hotelSlug, roomType, userName, email, checkIn, checkOut, guests, roomsBooked } = req.body;
 
-    // Validate fields
+    // 1. Validate fields
     if (!hotelSlug || !roomType || !userName || !email || !checkIn || !checkOut || !guests || !roomsBooked) {
       return res.status(400).json({ message: "Missing required fields in request body" });
     }
 
-    // Convert checkIn / checkOut to Date objects
+    // 2. Date handling
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
     const today = new Date();
-    const oneYearFromToday = new Date();
-    oneYearFromToday.setFullYear(today.getFullYear() + 1);
-    const tomorrow = new Date();
+    const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
+    const oneYearFromToday = new Date(today);
+    oneYearFromToday.setFullYear(today.getFullYear() + 1);
 
-    // Date validation
+    // Date validation rules
     if (checkInDate < tomorrow) {
-      return res.status(400).json({ message: "Check-in date can only be after current day." });
+      return res.status(400).json({ message: "Check-in date must be after today." });
     }
     if (checkOutDate <= checkInDate) {
       return res.status(400).json({ message: "Check-out date must be after check-in date." });
     }
     if (checkInDate > oneYearFromToday) {
-      return res.status(400).json({ message: "You can only book up to 1 year in advance." });
+      return res.status(400).json({ message: "Bookings can only be made up to 1 year in advance." });
     }
 
-    // Guests check: 3 guests per room
+    // 3. Guest limit: 3 per room
     if (guests > roomsBooked * 3) {
-      return res.status(400).json({ message: `Guest limit exceeded. Max ${roomsBooked * 3} guests allowed for ${roomsBooked} room(s).` });
+      return res.status(400).json({
+        message: `Guest limit exceeded. Max ${roomsBooked * 3} guests allowed for ${roomsBooked} room(s).`
+      });
     }
 
-    // Find hotel
+    // 4. Find hotel
     const hotel = await Hotel.findOne({ slug: hotelSlug });
     if (!hotel) {
       return res.status(404).json({ message: "Hotel not found" });
     }
 
-    // Find room type
+    // 5. Find room type
     const room = await Room.findOne({ hotelSlug, type: roomType });
     if (!room) {
       return res.status(404).json({ message: "Room type not found" });
     }
 
-    console.log(`Room found: ${room.type} | Booked: ${room.bookedRooms}/${room.totalRooms}`);
-
-    // OVERLAP CHECK 
+    // 6. Overlapping booking check (same as your original logic)
     const overlappingBookings = await Booking.aggregate([
       {
         $match: {
-          hotelSlug, //bookings in same hotel
-          roomType, //bookings in same room of same hotel
-          status: "confirmed", //only count bookings that are already confirmed
+          hotelSlug,
+          roomType,
+          status: "confirmed",
           $or: [
-            { checkIn: { $lt: checkOutDate }, checkOut: { $gt: checkInDate } }  //booking starts before this user's checkout and booking ends after this user's check in
+            { checkIn: { $lt: checkOutDate }, checkOut: { $gt: checkInDate } }
           ]
         }
       },
@@ -77,19 +80,18 @@ router.post("/", async (req, res) => {
     ]);
 
     const currentlyBooked = overlappingBookings.length > 0 ? overlappingBookings[0].totalBooked : 0;
-
-    if (currentlyBooked + roomsBooked > room.totalRooms) { //if 5 rooms are there and all 5 are booked with the same date and more users want the same room with the same dates, it will reject the booking
-      return res.status(400).json({ message: "Not enough rooms available for these dates" }); 
+    if (currentlyBooked + roomsBooked > room.totalRooms) {
+      return res.status(400).json({ message: "Not enough rooms available for these dates." });
     }
 
-    // Update room count
+    // 7. Update room count
     room.bookedRooms += roomsBooked;
     await room.save();
 
-    // Calculate price
+    // 8. Calculate price
     const totalPrice = room.price * roomsBooked;
 
-    // Save booking
+    // 9. Save booking
     const newBooking = await Booking.create({
       hotelSlug,
       hotelName: hotel.name,
@@ -101,10 +103,10 @@ router.post("/", async (req, res) => {
       guests,
       roomsBooked,
       totalPrice,
-      status: "confirmed"
+      status: "confirmed",
+      user: req.user.id // from JWT
     });
 
-    // Response
     res.status(201).json({
       message: "Booking confirmed!",
       booking: newBooking
@@ -116,55 +118,34 @@ router.post("/", async (req, res) => {
   }
 });
 
-// CANCEL BOOKING ROUTE (with debug logs)
-router.delete("/:bookingId", async (req, res) => {
+/**
+ * @route   DELETE /api/bookings/:bookingId
+ * @desc    Cancel a booking (Login required)
+ */
+router.delete("/:bookingId", verifyToken, async (req, res) => {
   try {
-    console.log("Cancel Booking Request:", req.params.bookingId);
-    console.log("Body received:", req.body);
+    const { bookingId } = req.params;
 
-    const { hotelSlug, roomType, roomsBooked } = req.body;
-
-    // Find booking
-    const booking = await Booking.findById(req.params.bookingId);
+    // Find booking for the logged-in user
+    const booking = await Booking.findOne({ _id: bookingId, user: req.user.id });
     if (!booking) {
-      return res.status(404).json({ message: "Booking not found" });
+      return res.status(404).json({ message: "Booking not found or unauthorized" });
     }
 
-    console.log("Booking in DB:", {
-      hotelSlug: booking.hotelSlug,
-      roomType: booking.roomType,
-      roomsBooked: booking.roomsBooked,
-    });
-
-    console.log("Details sent by user:", { hotelSlug, roomType, roomsBooked });
-
-    // Safety check make sure details match
-    if (
-      booking.hotelSlug !== hotelSlug ||
-      booking.roomType !== roomType ||
-      booking.roomsBooked !== roomsBooked
-    ) {
-      return res.status(400).json({ 
-        message: "Booking details don't match. Cannot cancel." 
-      });
-    }
-
-    //Decrease booked count
-    const room = await Room.findOne({ hotelSlug, type: roomType });
+    // Restore room availability
+    const room = await Room.findOne({ hotelSlug: booking.hotelSlug, type: booking.roomType });
     if (room) {
-      room.bookedRooms -= roomsBooked;
-      if (room.bookedRooms < 0) room.bookedRooms = 0;
+      room.bookedRooms = Math.max(0, room.bookedRooms - booking.roomsBooked);
       await room.save();
     }
 
-    //Update status instead of deleting booking
-    booking.status = "cancelled";
-    await booking.save();
+    // Delete booking
+    await Booking.deleteOne({ _id: bookingId });
 
-    res.status(200).json({ message: "Booking cancelled successfully" });
-  } catch (error) {
-    console.error("Cancel Booking Error:", error);
-    res.status(500).json({ message: "Server Error" });
+    res.json({ message: "Booking cancelled successfully" });
+  } catch (err) {
+    console.error("Error cancelling booking:", err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
