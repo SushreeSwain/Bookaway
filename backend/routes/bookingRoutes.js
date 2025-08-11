@@ -2,7 +2,9 @@ import express from "express";
 import Booking from "../models/Booking.js";
 import Hotel from "../models/Hotel.js";
 import Room from "../models/Room.js";
+import User from "../models/User.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
+
 
 const router = express.Router();
 
@@ -10,12 +12,24 @@ const router = express.Router();
  * @route   POST /api/bookings
  * @desc    Create a new booking (Login required)
  */
+
 router.post("/", verifyToken, async (req, res) => {
   try {
-    const { hotelSlug, roomType, userName, email, checkIn, checkOut, guests, roomsBooked } = req.body;
+    const { hotelSlug, roomType, checkIn, checkOut, guests, roomsBooked, userName, email } = req.body;
+
+    // Get logged-in user from token
+    const bookingUser = await User.findById(req.user.id);
+    if (!bookingUser) {
+      return res.status(401).json({ message: "User not found or not logged in." });
+    }
+
+    // Check if provided username & email match logged-in user's details
+    if (userName !== bookingUser.name || email !== bookingUser.email) {
+      return res.status(403).json({ message: "Username and email must match the logged-in user." });
+    }
 
     // 1. Validate fields
-    if (!hotelSlug || !roomType || !userName || !email || !checkIn || !checkOut || !guests || !roomsBooked) {
+    if (!hotelSlug || !roomType || !checkIn || !checkOut || !guests || !roomsBooked) {
       return res.status(400).json({ message: "Missing required fields in request body" });
     }
 
@@ -29,7 +43,6 @@ router.post("/", verifyToken, async (req, res) => {
     const oneYearFromToday = new Date(today);
     oneYearFromToday.setFullYear(today.getFullYear() + 1);
 
-    // Date validation rules
     if (checkInDate < tomorrow) {
       return res.status(400).json({ message: "Check-in date must be after today." });
     }
@@ -40,7 +53,7 @@ router.post("/", verifyToken, async (req, res) => {
       return res.status(400).json({ message: "Bookings can only be made up to 1 year in advance." });
     }
 
-    // 3. Guest limit: 3 per room
+    // 3. Guest limit
     if (guests > roomsBooked * 3) {
       return res.status(400).json({
         message: `Guest limit exceeded. Max ${roomsBooked * 3} guests allowed for ${roomsBooked} room(s).`
@@ -59,7 +72,7 @@ router.post("/", verifyToken, async (req, res) => {
       return res.status(404).json({ message: "Room type not found" });
     }
 
-    // 6. Overlapping booking check (same as your original logic)
+    // 6. Overlapping booking check
     const overlappingBookings = await Booking.aggregate([
       {
         $match: {
@@ -96,15 +109,15 @@ router.post("/", verifyToken, async (req, res) => {
       hotelSlug,
       hotelName: hotel.name,
       roomType,
-      userName: userName.trim(),
-      email: email.trim(),
+      userName,
+      email,
       checkIn,
       checkOut,
       guests,
       roomsBooked,
       totalPrice,
       status: "confirmed",
-      user: req.user.id // from JWT
+      user: bookingUser._id
     });
 
     res.status(201).json({
@@ -117,6 +130,7 @@ router.post("/", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Server Error" });
   }
 });
+
 
 /**
  * @route   DELETE /api/bookings/:bookingId
