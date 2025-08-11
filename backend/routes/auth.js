@@ -1,6 +1,7 @@
 import express from "express";
 import jwt from "jsonwebtoken";
-import User from "../models/User.js"; 
+import bcrypt from "bcryptjs"; // For password hashing
+import User from "../models/User.js";
 
 const router = express.Router();
 
@@ -20,8 +21,12 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ message: "Email already registered" });
     }
 
-    // Create new user
-    const user = new User({ name, email, password });
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create new user with hashed password
+    const user = new User({ name, email, password: hashedPassword });
     await user.save();
 
     // Create JWT token
@@ -45,4 +50,31 @@ router.post("/register", async (req, res) => {
   }
 });
 
-export default router; // ESM export
+// @route   POST /api/auth/login
+// @desc    Login user
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // Check if user exists
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: "Invalid email or password" });
+
+    // Compare passwords
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "Invalid email or password" });
+
+    // Generate JWT
+    const token = jwt.sign(
+      { id: user._id, email: user.email },
+      process.env.JWT_SECRET || "defaultsecret",
+      { expiresIn: "1h" }
+    );
+
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+export default router;
