@@ -5,14 +5,12 @@ import Room from "../models/Room.js";
 import User from "../models/User.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 
-
 const router = express.Router();
 
 /**
  * @route   POST /api/bookings
  * @desc    Create a new booking (Login required)
  */
-
 router.post("/", verifyToken, async (req, res) => {
   try {
     const { hotelSlug, roomType, checkIn, checkOut, guests, roomsBooked, userName, email } = req.body;
@@ -131,7 +129,6 @@ router.post("/", verifyToken, async (req, res) => {
   }
 });
 
-
 /**
  * @route   DELETE /api/bookings/:bookingId
  * @desc    Cancel a booking (Login required)
@@ -159,6 +156,42 @@ router.delete("/:bookingId", verifyToken, async (req, res) => {
     res.json({ message: "Booking cancelled successfully" });
   } catch (err) {
     console.error("Error cancelling booking:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * @route   GET /api/bookings/my-bookings?page=1&limit=5
+ * @desc    Get all bookings of logged-in user with pagination (latest first)
+ */
+router.get("/my-bookings", verifyToken, async (req, res) => {
+  try {
+    // Extract pagination params from query
+    let { page = 1, limit = 5 } = req.query;
+    page = parseInt(page);
+    limit = parseInt(limit);
+
+    // Count total bookings for the user
+    const totalBookings = await Booking.countDocuments({ user: req.user.id });
+
+    if (totalBookings === 0) {
+      return res.status(404).json({ message: "No bookings found for this user" });
+    }
+
+    // Fetch bookings with pagination & latest first
+    const bookings = await Booking.find({ user: req.user.id })
+      .sort({ checkIn: -1 })         // latest check-in first
+      .skip((page - 1) * limit)      // skip previous pages
+      .limit(limit);                 // limit results per page
+
+    res.json({
+      totalBookings,
+      currentPage: page,
+      totalPages: Math.ceil(totalBookings / limit),
+      bookings
+    });
+  } catch (err) {
+    console.error("Error fetching bookings:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
